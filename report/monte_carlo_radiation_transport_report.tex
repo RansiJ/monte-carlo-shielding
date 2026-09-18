@@ -1,0 +1,335 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{geometry}
+\geometry{letterpaper,margin=2.35cm}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{siunitx}
+\sisetup{output-decimal-marker={,},group-separator={\,},per-mode=symbol}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Transporte de radiación con Monte Carlo}
+\rhead{Validación analítica}
+\cfoot{\thepage}
+\setlength{\headheight}{14pt}
+\setlength{\parindent}{1.1em}
+\setlength{\parskip}{0.25em}
+\captionsetup{font=small,labelfont=bf}
+
+\title{\textbf{Transporte de radiación unidimensional mediante Monte Carlo}\\[0.35em]
+\large Reducción de varianza por \textit{trajectory biasing} y validación analítica}
+\author{Jorge Jiménez Ramírez}
+\date{Septiembre de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Se estudia la transmisión de partículas a través de un medio homogéneo unidimensional mediante dos estimadores Monte Carlo: un método análogo y una variante con reducción de varianza basada en \textit{trajectory biasing} por dilución uniforme de las secciones eficaces. El modelo emplea dispersión perfectamente hacia adelante (\textit{delta scattering}), lo que permite obtener una solución analítica para la transmisión y, de forma adicional, una expresión cerrada para el segundo momento del estimador sesgado. Esta propiedad convierte el problema en un banco de pruebas controlado: el parámetro de sesgo no se selecciona únicamente mediante un barrido numérico, sino que su valor de mínima varianza se deriva analíticamente y luego se contrasta con simulaciones repetidas. Para los parámetros estudiados se obtiene $\delta_{\mathrm{opt}}\approx 0{,}7071$ y una reducción teórica de la varianza por historia de aproximadamente $2{,}38$ veces respecto al método análogo. Las corridas repetidas recuperan el mínimo alrededor de $\delta=0{,}70$ y muestran que la mejora estadística se traduce también en una ganancia de eficiencia computacional en esa región. El alcance del trabajo es deliberadamente didáctico: no pretende sustituir un código de blindaje realista, sino demostrar de manera verificable la construcción, corrección y evaluación de un estimador Monte Carlo con reducción de varianza.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introducción y pregunta de investigación}
+La simulación Monte Carlo constituye una herramienta central para problemas de transporte de radiación porque permite representar de forma explícita la historia estocástica de partículas y sus interacciones con la materia \cite{vassiliev2017}. En aplicaciones reales, como el diseño de blindajes para instalaciones de radioterapia, la estimación fiable de la transmisión y de la atenuación es un componente relevante del análisis de protección radiológica \cite{quintero2023}. Sin embargo, cuando el evento de interés es poco probable, una simulación análoga puede invertir gran parte del costo computacional en historias que no contribuyen al estimador.
+
+Este trabajo utiliza un modelo deliberadamente simplificado para aislar ese problema estadístico. Se considera una placa homogénea unidimensional en la que cada interacción es absorción o dispersión estrictamente hacia adelante. La simplificación permite obtener una referencia exacta y, por tanto, evaluar la reducción de varianza sin confundir errores de modelado físico con errores del algoritmo Monte Carlo.
+
+La pregunta de investigación es:
+
+\begin{quote}
+\emph{¿Cómo cambia la varianza y la eficiencia computacional del estimador Monte Carlo de transmisión cuando se aplica trajectory biasing por dilución uniforme de las secciones eficaces, y puede determinarse analíticamente el factor de dilución que minimiza la varianza?}
+\end{quote}
+
+El enfoque metodológico deriva el óptimo de varianza a partir del segundo momento del estimador. El barrido en $\delta$ se utiliza como una prueba numérica independiente de esa predicción analítica.
+
+\section{Modelo físico}
+\subsection{Secciones eficaces y camino libre}
+En un medio homogéneo se define la sección eficaz macroscópica total como
+\begin{equation}
+    \sigma_t=\sigma_s+\sigma_a,
+\end{equation}
+donde $\sigma_s$ y $\sigma_a$ representan las contribuciones de dispersión y absorción. Si una partícula se desplaza una distancia $\ell$ sin interacción, la probabilidad de supervivencia es
+\begin{equation}
+    P(\text{sin interacción hasta }\ell)=\exp(-\sigma_t\ell).
+\end{equation}
+Por tanto, el camino libre se distribuye exponencialmente,
+\begin{equation}
+    f(\ell)=\sigma_t\exp(-\sigma_t\ell),\qquad \ell\ge 0,
+\end{equation}
+y puede muestrearse mediante transformada inversa a partir de una variable uniforme $U\in(0,1)$:
+\begin{equation}
+    \ell=-\frac{\ln U}{\sigma_t}.
+\end{equation}
+Estas relaciones son estándar en transporte Monte Carlo de partículas \cite{vassiliev2017}.
+
+\subsection{Geometría y modelo de \textit{delta scattering}}
+La geometría consiste en una placa de espesor $L$. La partícula inicia en $x=0$ y se propaga en la dirección positiva. En una colisión de dispersión no cambia ni su dirección ni su energía; una absorción termina la historia. El esquema se resume en la Figura~\ref{fig:slab}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{report/figures/modelo_unidimensional.png}
+\caption{Modelo unidimensional. La dispersión conserva la dirección de propagación; la absorción, no mostrada en la trayectoria transmitida, termina la historia.}
+\label{fig:slab}
+\end{figure}
+
+Debido a que la dispersión no desvía la partícula, la transmisión solo requiere que no ocurra absorción a lo largo de la longitud $L$. La solución exacta es entonces
+\begin{equation}
+    \boxed{T=\exp(-\sigma_a L)}.
+    \label{eq:exactT}
+\end{equation}
+Esta solución proporciona una referencia independiente para validar los estimadores.
+
+\begin{table}[H]
+\centering
+\caption{Parámetros físicos utilizados en la simulación.}
+\label{tab:parameters}
+\begin{tabular}{lll}
+\toprule
+Magnitud & Símbolo & Valor \\
+\midrule
+Espesor de la placa & $L$ & \SI{100}{\centi\meter} \\
+Sección eficaz total & $\sigma_t$ & \SI{0.10}{\per\centi\meter} \\
+Sección eficaz de dispersión & $\sigma_s$ & \SI{0.05}{\per\centi\meter} \\
+Sección eficaz de absorción & $\sigma_a$ & \SI{0.05}{\per\centi\meter} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Con estos parámetros, la transmisión exacta es $T=0{,}00673795$.
+
+\section{Estimadores Monte Carlo}
+\subsection{Método análogo}
+En el método análogo se simulan directamente las probabilidades físicas. Para cada historia se muestrea un camino libre con $\sigma_t$; si la partícula cruza $x=L$ antes de la siguiente colisión, el tally vale uno. Si ocurre una colisión dentro de la placa, el tipo de interacción se selecciona con
+\begin{equation}
+    P_a=\frac{\sigma_a}{\sigma_t},\qquad
+    P_s=\frac{\sigma_s}{\sigma_t}.
+\end{equation}
+Una historia absorbida aporta cero. El tally por historia es, por tanto, una variable de Bernoulli $X\in\{0,1\}$ con
+\begin{equation}
+    E[X]=T,
+    \qquad
+    \operatorname{Var}(X)=T(1-T).
+    \label{eq:analogvar}
+\end{equation}
+
+\subsection{Dilución de densidad}
+Para aumentar la frecuencia de historias transmitidas se modifica artificialmente el proceso de transporte mediante
+\begin{equation}
+    \boxed{\tilde\sigma_j=\delta\sigma_j,\qquad 0<\delta\le1.}
+    \label{eq:dilution}
+\end{equation}
+Esta convención se utiliza de forma consistente en el código, el notebook y el presente informe. Cuando $\delta=1$, el proceso sesgado coincide exactamente con el proceso análogo; al disminuir $\delta$, aumenta el camino libre medio y las partículas cruzan la placa con mayor frecuencia.
+
+Como todas las secciones eficaces se escalan por el mismo factor, las probabilidades relativas de absorción y dispersión permanecen sin cambio. El sesgo afecta únicamente a la distribución espacial de los puntos de interacción.
+
+\subsection{Peso por razón de verosimilitudes}
+Considérese una historia transmitida que experimenta $n$ colisiones de dispersión antes de salir de la placa. Para posiciones ordenadas de colisión, la densidad de trayectoria análoga contiene el factor
+\begin{equation}
+    \sigma_s^n\exp(-\sigma_t L),
+\end{equation}
+mientras que la densidad bajo el proceso sesgado contiene
+\begin{equation}
+    (\delta\sigma_s)^n\exp(-\delta\sigma_t L).
+\end{equation}
+La razón entre ambas densidades determina el peso correcto:
+\begin{equation}
+    \boxed{
+    Q_n=\delta^{-n}\exp\left[(\delta-1)\sigma_t L\right]
+    }.
+    \label{eq:weight}
+\end{equation}
+Las historias absorbidas aportan $Q=0$. Esta formulación compacta es equivalente a actualizar el peso segmento por segmento, pero aprovecha que el medio es homogéneo, la partícula nunca cambia de dirección y toda historia transmitida recorre exactamente la distancia total $L$.
+
+\section{Insesgadez, segundo momento y óptimo analítico}
+\subsection{Valor esperado}
+El estimador sesgado debe conservar el valor esperado físico. Sumando sobre el número posible de dispersiones antes de la salida,
+\begin{align}
+E_b[Q]
+&=\sum_{n=0}^{\infty}
+\frac{L^n}{n!}
+(\delta\sigma_s)^n e^{-\delta\sigma_tL}
+\delta^{-n}e^{(\delta-1)\sigma_tL}\\
+&=e^{-\sigma_tL}\sum_{n=0}^{\infty}\frac{(\sigma_sL)^n}{n!}\\
+&=e^{-(\sigma_t-\sigma_s)L}\\
+&=e^{-\sigma_aL}=T.
+\end{align}
+Por tanto, el cambio de medida no introduce sesgo en la esperanza.
+
+\subsection{Segundo momento y varianza exacta}
+El segundo momento puede obtenerse de manera análoga:
+\begin{align}
+E_b[Q^2]
+&=\sum_{n=0}^{\infty}
+\frac{L^n}{n!}
+(\delta\sigma_s)^n e^{-\delta\sigma_tL}
+\delta^{-2n}e^{2(\delta-1)\sigma_tL}\\
+&=\exp\left\{L\left[(\delta-2)\sigma_t+\frac{\sigma_s}{\delta}\right]\right\}.
+\end{align}
+La varianza del tally sesgado es entonces
+\begin{equation}
+\boxed{
+\operatorname{Var}_b(Q)=
+\exp\left\{L\left[(\delta-2)\sigma_t+\frac{\sigma_s}{\delta}\right]\right\}-T^2.
+}
+\label{eq:biasedvar}
+\end{equation}
+
+La Figura~\ref{fig:theoryvar} muestra que la reducción de varianza no es monótona: una dilución moderada favorece las historias relevantes, pero una dilución excesiva genera eventos transmitidos poco frecuentes bajo el peso estadístico efectivo y puede producir tallies de gran magnitud.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{report/figures/varianza_teorica.png}
+\caption{Varianza exacta del tally sesgado en función de $\delta$. La línea vertical indica el mínimo analítico y la horizontal la varianza del método análogo.}
+\label{fig:theoryvar}
+\end{figure}
+
+\subsection{Factor de dilución de mínima varianza}
+Minimizar la varianza equivale a minimizar el exponente del segundo momento. Derivando respecto a $\delta$,
+\begin{equation}
+    \frac{d}{d\delta}\left[(\delta-2)\sigma_t+\frac{\sigma_s}{\delta}\right]
+    =\sigma_t-\frac{\sigma_s}{\delta^2}.
+\end{equation}
+La condición estacionaria produce
+\begin{equation}
+    \boxed{\delta_{\mathrm{opt}}=\sqrt{\frac{\sigma_s}{\sigma_t}}.}
+    \label{eq:dopt}
+\end{equation}
+Para los parámetros de la Tabla~\ref{tab:parameters}, $\delta_{\mathrm{opt}}=0{,}707107$. En ese punto, la varianza teórica por historia disminuye de $0{,}00669255$ en el método análogo a $0{,}00281194$, lo que corresponde a una reducción de varianza de aproximadamente $2{,}38$ veces.
+
+\section{Implementación computacional y estrategia de validación}
+\subsection{Estructura del código}
+La implementación separa la lógica reusable de transporte del análisis interactivo. Las funciones físicas y los dos estimadores residen en \texttt{src/shielding\_mc.py}; el notebook contiene la derivación, el experimento repetido y las figuras; las verificaciones básicas se mantienen en una suite de pruebas automatizadas.
+
+El avance de las historias activas se vectoriza con NumPy. Esto elimina el bucle de Python por partícula sin cambiar la lógica evento por evento: cada historia continúa muestreando caminos libres y tipos de colisión hasta absorción o transmisión.
+
+\subsection{Pruebas de consistencia}
+La suite automatizada contiene siete pruebas que verifican:
+\begin{itemize}[leftmargin=1.6em]
+    \item la relación $\sigma_t=\sigma_s+\sigma_a$;
+    \item propiedades del muestreo exponencial del camino libre;
+    \item convergencia de los estimadores hacia la solución exacta;
+    \item la expresión cerrada de la varianza sesgada; y
+    \item la identidad exacta entre el algoritmo sesgado con $\delta=1$ y el algoritmo análogo cuando ambos emplean la misma semilla.
+\end{itemize}
+
+La última comprobación es especialmente exigente: no compara únicamente las medias finales, sino los tallies historia por historia. Así se verifica que la implementación sesgada se reduce al proceso análogo cuando desaparece la modificación de la medida.
+
+\subsection{Experimento repetido}
+Para evitar seleccionar un parámetro a partir de una sola corrida ruidosa, el benchmark utiliza $20$ réplicas independientes de $50\,000$ historias para cada valor de $\delta$ en la malla $0{,}50,0{,}55,\ldots,1{,}00$. Para cada configuración se registran la estimación media, la dispersión entre réplicas, la varianza muestral del tally y el tiempo de CPU.
+
+El barrido se restringe a esta región en la validación empírica porque valores mucho menores de $\delta$ producen distribuciones de pesos con colas más severas. Aunque la varianza exacta sigue estando definida y se muestra en la Figura~\ref{fig:theoryvar}, una estimación estable de su segundo momento requeriría muestras sustancialmente mayores. El objetivo del barrido no es reemplazar la solución analítica, sino comprobar que el código reproduce su tendencia en una región estadísticamente resoluble.
+
+\subsection{Métrica de eficiencia}
+Se define la eficiencia computacional como
+\begin{equation}
+    \eta=\frac{1}{t_h\,\operatorname{Var}(Q)},
+    \label{eq:eff}
+\end{equation}
+donde $t_h$ es el tiempo de CPU por historia. La métrica penaliza tanto una varianza grande como un costo elevado por muestra. En el benchmark se usa la mediana del tiempo entre réplicas para reducir la sensibilidad a fluctuaciones de ejecución. Los tiempos se interpretan únicamente como resultados de implementación: dependen del equipo, del entorno de Python y del estado del sistema.
+
+\section{Resultados}
+\subsection{Validación de la varianza}
+La Figura~\ref{fig:varvalidation} compara la varianza exacta de la Ecuación~\eqref{eq:biasedvar} con la varianza muestral promedio obtenida en las réplicas. Ambas identifican $\delta=0{,}70$ como el mejor punto de la malla, en acuerdo con el mínimo continuo $\delta_{\mathrm{opt}}\approx0{,}7071$.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{report/figures/validacion_varianza.png}
+\caption{Comparación entre la varianza exacta y la estimada mediante simulaciones repetidas. El mejor punto de la malla coincide con la vecindad del óptimo analítico.}
+\label{fig:varvalidation}
+\end{figure}
+
+Este resultado es más fuerte que identificar un mínimo en una única corrida: la forma de la curva fue deducida independientemente del experimento y la simulación recupera tanto su tendencia como la ubicación del mínimo.
+
+\subsection{Comportamiento de las estimaciones repetidas}
+La insesgadez no se evalúa preguntando si una sola corrida cae dentro de una barra de una desviación estándar. En su lugar, se observa el comportamiento de estimaciones independientes respecto a la solución exacta. La Figura~\ref{fig:means} muestra que las medias de las réplicas permanecen alrededor de $T$ y que las desviaciones cambian de signo a lo largo de la malla, sin un desplazamiento sistemático evidente.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{report/figures/estimaciones_repetidas.png}
+\caption{Media de la transmisión estimada entre réplicas; las barras representan la desviación estándar entre corridas independientes.}
+\label{fig:means}
+\end{figure}
+
+En la malla, el punto $\delta=0{,}70$ produjo una media de transmisión de $0{,}00667927$ en el experimento repetido, cercana al valor exacto $0{,}00673795$. La interpretación principal, sin embargo, no depende de esa coincidencia particular, sino de la conservación teórica de $E_b[Q]=T$ y de las pruebas independientes del código.
+
+\subsection{Resumen estadístico}
+\begin{table}[H]
+\centering
+\caption{Comparación de magnitudes estables entre el método análogo y el sesgo próximo al óptimo.}
+\label{tab:core-results}
+\begin{tabular}{lcc}
+\toprule
+Magnitud & Monte Carlo análogo & Dilución cercana al óptimo \\
+\midrule
+$\delta$ & $1{,}00$ & $0{,}70$ \\
+Transmisión exacta de referencia & \multicolumn{2}{c}{$0{,}00673795$} \\
+Media de las réplicas & $0{,}00680000$ & $0{,}00667927$ \\
+Varianza teórica por historia & $0{,}00669255$ & $0{,}00281400$ \\
+Óptimo continuo teórico & \multicolumn{2}{c}{$\delta_{\mathrm{opt}}=0{,}707107$} \\
+Reducción teórica máxima de varianza & \multicolumn{2}{c}{$\approx 2{,}38\times$ respecto al método análogo} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Eficiencia computacional}
+La Figura~\ref{fig:efficiency} combina el costo medido por historia con la varianza. En la ejecución utilizada para generar el presente informe, la mayor eficiencia de la malla apareció nuevamente cerca de $\delta=0{,}70$. La ganancia medida es del orden de dos veces la eficiencia del algoritmo análogo y su valor exacto cambia ligeramente entre ejecuciones, como es esperable para una métrica que incluye tiempo de CPU.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{report/figures/eficiencia_relativa.png}
+\caption{Eficiencia relativa respecto al método análogo. La curva basada en varianza teórica separa el ruido del segundo momento de las fluctuaciones propias del tiempo de ejecución.}
+\label{fig:efficiency}
+\end{figure}
+
+Por esta razón, el resultado científicamente más robusto del proyecto es la reducción exacta de varianza y la ubicación analítica de su mínimo; el benchmark temporal demuestra que esa mejora estadística puede traducirse en ahorro computacional en la implementación estudiada, pero no debe interpretarse como una constante universal.
+
+\section{Discusión}
+El análisis se organiza alrededor de tres aspectos centrales.
+
+Primero, $\delta$ ya no se trata como un parámetro cuya elección depende exclusivamente de un barrido empírico. Para este modelo, el segundo momento puede calcularse exactamente y el mínimo continuo está dado por la Ecuación~\eqref{eq:dopt}. El barrido numérico se convierte así en una validación de la implementación.
+
+Segundo, la consistencia del estimador sesgado se apoya en una razón de verosimilitudes explícita. Esto evita depender de argumentos basados únicamente en la proximidad de una corrida al valor exacto. La insesgadez se demuestra analíticamente y el caso $\delta=1$ proporciona una prueba computacional fuerte de equivalencia con el método análogo.
+
+Tercero, la eficiencia se separa conceptualmente de la varianza. Un estimador de menor varianza no es automáticamente más eficiente si su costo por historia aumenta de forma suficiente. En este problema, la vectorización mantiene costos por historia comparables y permite que la mejora estadística domine cerca del óptimo, pero esa conclusión es específica de la implementación.
+
+También es importante no extrapolar el alcance físico del modelo. El \textit{delta scattering} elimina cambios angulares y energéticos, no incluye retrodispersión, no representa secciones eficaces dependientes de energía y considera un único material homogéneo. Por tanto, el proyecto no es un código general de diseño de blindajes. Su valor radica en que ofrece un entorno donde la teoría del estimador, el algoritmo y la simulación pueden contrastarse de manera cerrada y reproducible.
+
+\section{Conclusiones}
+El método Monte Carlo análogo reproduce la transmisión exacta del modelo unidimensional y sirve como referencia para evaluar una estrategia de reducción de varianza. Al diluir todas las secciones eficaces mediante $\tilde\sigma_j=\delta\sigma_j$ y corregir cada historia transmitida con la razón de verosimilitudes correspondiente, se obtiene un estimador que conserva exactamente el valor esperado físico.
+
+La derivación del segundo momento muestra que la varianza del tally sesgado posee un mínimo analítico en
+\begin{equation*}
+    \delta_{\mathrm{opt}}=\sqrt{\sigma_s/\sigma_t}.
+\end{equation*}
+Para los parámetros estudiados, este valor es aproximadamente $0{,}7071$ y reduce la varianza por historia en alrededor de $2{,}38$ veces frente al método análogo. Las simulaciones repetidas identifican $\delta=0{,}70$ como el mejor punto de la malla, lo que constituye una validación numérica independiente del resultado teórico.
+
+El análisis temporal indica además que la región de mínima varianza ofrece una mejora de eficiencia computacional en la implementación vectorizada. No obstante, la magnitud exacta de esa ganancia depende del entorno de ejecución, por lo que se reporta como benchmark y no como propiedad intrínseca del modelo.
+
+Como extensión natural, el problema puede generalizarse hacia dispersión angular, cambios de energía, materiales multicapa o geometrías multidimensionales. En esos casos es probable que el óptimo deje de admitir una expresión cerrada; entonces sí sería pertinente estudiar estrategias de optimización numérica o adaptativa para los parámetros de reducción de varianza.
+
+\section*{Reproducibilidad}
+El repositorio contiene el notebook ejecutado, el módulo de transporte, las pruebas automatizadas y el script \texttt{report/generate\_report\_figures.py} utilizado para regenerar las figuras y los resúmenes numéricos de este informe.
+
+\begin{thebibliography}{9}
+\bibitem{vassiliev2017}
+O. N. Vassiliev, \emph{Monte Carlo Methods for Radiation Transport: Fundamentals and Advanced Topics}. Cham, Switzerland: Springer International Publishing, 2017. doi: \href{https://doi.org/10.1007/978-3-319-44141-2}{10.1007/978-3-319-44141-2}.
+
+\bibitem{quintero2023}
+M. del S. Quintero Castelán, C. Estrada Hernández, P. A. Chee Chávez y J. A. Rojas-López, ``Considerations for MR-linac bunker shielding design,'' \emph{Biomedical Physics \& Engineering Express}, vol. 9, no. 6, art. 067003, 2023. doi: \href{https://doi.org/10.1088/2057-1976/ad04e9}{10.1088/2057-1976/ad04e9}.
+\end{thebibliography}
+
+\end{document}
